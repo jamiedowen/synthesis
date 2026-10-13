@@ -17,30 +17,38 @@ jobs:
         include:
           - name: Windows
             os: windows-latest
-            artifact: MidnightEdge-Windows-VST3
+            platform: Windows
           - name: macOS
             os: macos-latest
-            artifact: MidnightEdge-macOS-VST3
+            platform: macOS
     steps:
       - uses: actions/checkout@v4
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
 
-      - name: Build VST3
-        run: cmake --build build --config Release --target MidnightEdge_VST3 --parallel
+      - name: Build VST3s
+        run: cmake --build build --config Release --target MidnightEdge_VST3 MidnightGrind_VST3 --parallel
 
       - name: Package
         shell: bash
         run: |
-          mkdir -p dist
-          cp -R "build/MidnightEdge_artefacts/Release/VST3/Midnight Edge.vst3" dist/
-          cp README.md dist/
+          mkdir -p dist/edge dist/grind
+          cp -R "build/MidnightEdge_artefacts/Release/VST3/Midnight Edge.vst3" dist/edge/
+          cp README.md dist/edge/
+          cp -R "build/Grind/MidnightGrind_artefacts/Release/VST3/Midnight Grind.vst3" dist/grind/
+          cp Grind/README.md dist/grind/
+          cp Grind/ThirdParty/mutable/LICENSE dist/grind/LICENSE-MutableInstruments.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: dist
+          name: MidnightEdge-${{ matrix.platform }}-VST3
+          path: dist/edge
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MidnightGrind-${{ matrix.platform }}-VST3
+          path: dist/grind
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

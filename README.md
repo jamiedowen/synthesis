@@ -7,6 +7,10 @@ a step sequencer, voices you can tweak, and FM metallic percussion.
 
 ![Midnight Edge](docs/editor.png)
 
+> **Also in this repository:** [Midnight Grind](Grind/README.md), a hybrid semi-modular synth
+> modelled on the Behringer GRIND. It has the Mutable Instruments Plaits engines, a 24 dB
+> ladder filter, a 32-step sequencer, an arpeggiator and a 22 × 12 patch bay.
+
 ## Features
 
 - **8 synthesised voices**: Kick, Snare, Clap, Closed Hat, Open Hat (choked by the closed hat),

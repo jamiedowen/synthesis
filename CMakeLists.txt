@@ -70,3 +70,6 @@ if (MIDNIGHT_EDGE_BUILD_TESTS)
         juce::juce_audio_utils juce::juce_audio_formats juce::juce_dsp
         juce::juce_recommended_config_flags)
 endif()
+
+# Midnight Grind (hybrid semi-modular synth) lives in its own folder
+add_subdirectory(Grind)
