@@ -442,6 +442,77 @@ void CableLayer::tick()
 }
 
 //==============================================================================
+juce::Rectangle<float> PatternPicker::cell (int bank, int slot) const
+{
+    const float top = 80.0f, left = 70.0f;
+    const float w = ((float) getWidth() - left - 20.0f) / 8.0f;
+    const float h = ((float) getHeight() - top - 14.0f) / 8.0f;
+    return { left + (float) slot * w + 4.0f, top + (float) bank * h + 3.0f, w - 8.0f, h - 6.0f };
+}
+
+void PatternPicker::paint (juce::Graphics& g)
+{
+    g.setColour (hw::faceDark.withAlpha (0.97f));
+    g.fillRoundedRectangle (getLocalBounds().toFloat(), 10.0f);
+    g.setColour (hw::orange);
+    g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (1.5f), 10.0f, 3.0f);
+
+    g.setColour (hw::label);
+    g.setFont (uiFont (34.0f));
+    g.drawText ("SELECT PATTERN", 24, 12, 600, 56, juce::Justification::centredLeft);
+
+    const auto close = closeArea();
+    g.setColour (juce::Colour (0xff2a2a2e));
+    g.fillRoundedRectangle (close, 6.0f);
+    g.setColour (hw::label);
+    g.setFont (uiFont (28.0f));
+    g.drawText ("CLOSE", close, juce::Justification::centred);
+
+    const int current = processor.getCurrentPattern();
+    auto& perf = processor.getPerformance();
+    for (int bank = 0; bank < 8; ++bank)
+    {
+        const auto first = cell (bank, 0);
+        g.setColour (hw::orange);
+        g.setFont (uiFont (32.0f));
+        g.drawText (juce::String::charToString ((juce::juce_wchar) ('A' + bank)), 14, (int) first.getY(), 46,
+                    (int) first.getHeight(), juce::Justification::centred);
+
+        for (int slot = 0; slot < 8; ++slot)
+        {
+            const int idx = bank * 8 + slot;
+            const auto r = cell (bank, slot);
+            const bool on = idx == current;
+            g.setColour (on ? hw::padRed : juce::Colour (0xff3a1010));
+            g.fillRoundedRectangle (r, 6.0f);
+            g.setColour (on ? juce::Colours::black : hw::label);
+            g.setFont (uiFont (26.0f));
+            g.drawText (juce::String::charToString ((juce::juce_wchar) ('A' + bank)) + juce::String (slot + 1),
+                        r.withTrimmedRight (r.getWidth() * 0.45f), juce::Justification::centred);
+            g.setFont (uiFont (18.0f, false));
+            g.drawText (juce::String (perf.getLength (idx)) + " st", r.withTrimmedLeft (r.getWidth() * 0.5f),
+                        juce::Justification::centred);
+        }
+    }
+}
+
+void PatternPicker::mouseUp (const juce::MouseEvent& e)
+{
+    if (closeArea().contains (e.position))
+    {
+        if (onPick) onPick (-1);
+        return;
+    }
+    for (int bank = 0; bank < 8; ++bank)
+        for (int slot = 0; slot < 8; ++slot)
+            if (cell (bank, slot).contains (e.position))
+            {
+                if (onPick) onPick (bank * 8 + slot);
+                return;
+            }
+}
+
+//==============================================================================
 MenuOverlay::MenuOverlay (MidnightGrindProcessor& p) : sequencer (p), arp (p), settings (p)
 {
     tabs.addTab ("SEQUENCER", colours::panel, 0);
@@ -506,7 +577,7 @@ GrindPanel::GrindPanel (MidnightGrindProcessor& p)
       vcfMode (p.apvts, "vcfMode", { 0, 1 }), vcfModSrc (p.apvts, "vcfModSrc", { 0, 1 }),
       vcfModPol (p.apvts, "vcfModPol", { 0, 1 }), vcaMode (p.apvts, "vcaMode", { 0, 1, 2 }),
       lfoShape (p.apvts, "lfoWave", { 1, 0 }),
-      modelDisplay (p), cables (p), menu (p)
+      modelDisplay (p), cables (p), menu (p), patternPicker (p)
 {
     setLookAndFeel (&lnf);
     setSize ((int) panelWidth, (int) panelHeight);
@@ -688,6 +759,20 @@ GrindPanel::GrindPanel (MidnightGrindProcessor& p)
     addAndMakeVisible (cables);
     cables.setBounds (getLocalBounds());
 
+    addChildComponent (patternPicker);
+    patternPicker.setBounds (78, 290, 1845, 680);
+    patternPicker.onPick = [this] (int pattern)
+    {
+        if (pattern >= 0)
+            setParam ("pattern", (float) pattern);
+        patternPicker.setVisible (false);
+    };
+
+    // Knob value bubbles are drawn inside the panel (no separate popup windows)
+    for (auto* k : { &timbre, &timbreAmt, &harmonics, &fm, &frequency, &morph, &morphAmt, &cutoff, &resonance, &vcfMod,
+                     &volume, &attack, &decay, &sustain, &oscMod, &lfoRate, &glide, &vcMix, &tempo, &swing })
+        k->setPopupDisplayEnabled (true, true, this);
+
     addChildComponent (menu);
     menu.setTransform (juce::AffineTransform::scale (1.8f).translated (55.0f, 70.0f));
     menu.onClose = [this] { showMenu (-1); };
@@ -777,25 +862,9 @@ void GrindPanel::stepPadLongPress (int index)
 
 void GrindPanel::showPatternMenu()
 {
-    juce::PopupMenu m;
-    const auto names = MidnightGrindProcessor::patternNames();
-    const int current = processor.getCurrentPattern();
-    for (int bank = 0; bank < 8; ++bank)
-    {
-        juce::PopupMenu sub;
-        for (int slot = 0; slot < 8; ++slot)
-        {
-            const int idx = bank * 8 + slot;
-            sub.addItem (idx + 1, names[idx], true, idx == current);
-        }
-        m.addSubMenu ("Bank " + juce::String::charToString ((juce::juce_wchar) ('A' + bank)), sub, true,
-                      nullptr, current / 8 == bank);
-    }
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&patternButton), [this] (int r)
-    {
-        if (r > 0)
-            setParam ("pattern", (float) (r - 1));
-    });
+    patternPicker.setVisible (! patternPicker.isVisible());
+    patternPicker.toFront (false);
+    patternPicker.repaint();
 }
 
 void GrindPanel::updateSequencerLights()

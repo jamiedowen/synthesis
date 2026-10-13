@@ -128,6 +128,22 @@ private:
 };
 
 //==============================================================================
+// PATTERN/BANK: a full-size 8 x 8 grid of the 64 pattern slots (bank A-H rows)
+class PatternPicker : public juce::Component
+{
+public:
+    explicit PatternPicker (MidnightGrindProcessor& p) : processor (p) {}
+    void paint (juce::Graphics&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    std::function<void (int)> onPick;
+
+private:
+    juce::Rectangle<float> cell (int bank, int slot) const;
+    juce::Rectangle<float> closeArea() const { return { (float) getWidth() - 190.0f, 12.0f, 170.0f, 56.0f }; }
+    MidnightGrindProcessor& processor;
+};
+
+//==============================================================================
 class MenuOverlay : public juce::Component
 {
 public:
@@ -165,6 +181,7 @@ public:
 
     MenuOverlay& getMenu() noexcept { return menu; }
     void showMenu (int tab);
+    void showPatternMenu();
 
 private:
     void placeKnob (juce::Slider&, float cx, float cy, bool small);
@@ -177,7 +194,6 @@ private:
     float getParam (const juce::String& id) const;
     void padPressed (int pad, bool black, bool down);
     void stepPadLongPress (int pad);
-    void showPatternMenu();
     void updateSequencerLights();
 
     MidnightGrindProcessor& processor;
@@ -205,6 +221,7 @@ private:
 
     CableLayer cables;
     MenuOverlay menu;
+    PatternPicker patternPicker;
 
     bool shift = false, stepMode = false;
     int octave = 3, page = 0;
@@ -226,6 +243,7 @@ public:
 
     // -1 closes the menu, 0..2 opens it on that tab (also used by the render test)
     void showMenu (int tab) { panel.showMenu (tab); }
+    void togglePatternPicker() { panel.showPatternMenu(); }
 
 private:
     void timerCallback() override { panel.tick(); }

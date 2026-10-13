@@ -25,10 +25,28 @@ namespace colours
     const juce::Colour lcdText    { 0xff6dffcf };
 }
 
+// On phones and tablets every popup (menus, combo box lists) is drawn inside the app's own
+// window: separate native popup windows are fragile on Android.
+inline juce::PopupMenu::Options inAppMenuOptions (juce::PopupMenu::Options options, juce::Component* anchor)
+{
+   #if JUCE_ANDROID || JUCE_IOS
+    if (anchor != nullptr)
+        if (auto* top = anchor->getTopLevelComponent())
+            return options.withParentComponent (top);
+   #else
+    juce::ignoreUnused (anchor);
+   #endif
+    return options;
+}
+
 class GrindLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
     GrindLookAndFeel();
+    juce::PopupMenu::Options getOptionsForComboBoxPopupMenu (juce::ComboBox& box, juce::Label& label) override
+    {
+        return inAppMenuOptions (LookAndFeel_V4::getOptionsForComboBoxPopupMenu (box, label), &box);
+    }
     void drawRotarySlider (juce::Graphics&, int x, int y, int w, int h, float pos,
                            float startAngle, float endAngle, juce::Slider&) override;
     void drawLinearSlider (juce::Graphics&, int x, int y, int w, int h, float pos, float minPos, float maxPos,
@@ -52,6 +70,7 @@ public:
     void resized() override;
     void paint (juce::Graphics&) override;
     void setSubLabel (const juce::String& s) { if (s != subLabel) { subLabel = s; repaint(); } }
+    void parentHierarchyChanged() override { slider.setPopupDisplayEnabled (true, true, getTopLevelComponent()); }
 
     juce::Slider slider;
 

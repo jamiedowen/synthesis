@@ -551,7 +551,8 @@ void grind::ui::showStepMenu (MidnightGrindProcessor& processor, int pattern, in
     m.addItem (21, "Octave down");
     m.addItem (22, "Set pattern end here");
 
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target).withTargetScreenArea (screenArea),
+    m.showMenuAsync (inAppMenuOptions (juce::PopupMenu::Options().withTargetComponent (&target).withTargetScreenArea (screenArea),
+                                       &target),
                      [&processor, pattern, s, st, onDone] (int result) mutable
                      {
                          if (result == 0) return;

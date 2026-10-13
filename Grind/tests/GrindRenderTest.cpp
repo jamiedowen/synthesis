@@ -387,6 +387,17 @@ int main (int argc, char** argv)
             juce::FileOutputStream os (file);
             png.writeImageToStream (image, os);
         }
+
+        if (grindEditor != nullptr)
+        {
+            grindEditor->showMenu (-1);
+            grindEditor->togglePatternPicker();
+            auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f);
+            auto file = outDir.getChildFile ("editor_patterns.png");
+            file.deleteFile();
+            juce::FileOutputStream os (file);
+            juce::PNGImageFormat().writeImageToStream (image, os);
+        }
     }
 
     std::cout << (failures == 0 ? "ALL CHECKS PASSED\n" : "SOME CHECKS FAILED\n");
