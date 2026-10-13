@@ -33,6 +33,8 @@ set_target_properties(grind_mutable PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_definitions(grind_mutable PUBLIC TEST)
 target_include_directories(grind_mutable SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/mutable)
 if (MSVC)
+    # The Mutable code uses M_PI, which MSVC only defines on request
+    target_compile_definitions(grind_mutable PUBLIC _USE_MATH_DEFINES)
     target_compile_options(grind_mutable PRIVATE /W0)
 else()
     target_compile_options(grind_mutable PRIVATE -w)
