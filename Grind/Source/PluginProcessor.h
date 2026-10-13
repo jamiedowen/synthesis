@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "EngineTable.h"
-#include "PatchMatrix.h"
+#include "PatchBay.h"
 #include "Performance.h"
 #include "dsp/Synth.h"
 
@@ -41,11 +41,12 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
     //==============================================================================
-    // Patch matrix (destination x source levels, -1..1), shared with the editor
-    float getPatch (int destination, int source) const noexcept;
-    void setPatch (int destination, int source, float amount) noexcept;
-    void clearPatches() noexcept;
-    int countPatches() const noexcept;
+    // Patch cables: which output feeds each input (-1 = unpatched), shared with the editor
+    int getCable (int input) const noexcept;
+    void setCable (int input, int output) noexcept;
+    void clearCables() noexcept;
+    int countCables() const noexcept;
+    uint32_t getCableVersion() const noexcept { return cableVersion.load (std::memory_order_relaxed); }
 
     grind::Performance& getPerformance() noexcept { return performance; }
 
@@ -87,7 +88,9 @@ private:
     grind::dsp::Synth synth;
     grind::dsp::SynthParams synthParams;
     grind::Performance performance;
-    std::array<std::atomic<float>, grind::numPatchPoints> patches;
+    std::array<std::atomic<int>, grind::numInputs> cables;
+    std::atomic<uint32_t> cableVersion { 0 };
+    float lastPlayStop = 0.0f, lastReset = 0.0f;
 
     std::vector<grind::NoteEvent> events;
     std::vector<float> mono;
@@ -119,7 +122,7 @@ private:
         std::atomic<float>* cutoff; std::atomic<float>* resonance; std::atomic<float>* vcfModAmt;
         std::atomic<float>* vcfModSrc; std::atomic<float>* vcfModPol; std::atomic<float>* vcfMode;
         std::atomic<float>* keyTrack; std::atomic<float>* drive;
-        std::atomic<float>* vcaMode; std::atomic<float>* attack; std::atomic<float>* decay;
+        std::atomic<float>* vcaMode; std::atomic<float>* attack; std::atomic<float>* decay; std::atomic<float>* assignSrc;
         std::atomic<float>* sustain; std::atomic<float>* velocity;
         std::atomic<float>* lfoRate; std::atomic<float>* lfoWave; std::atomic<float>* glide;
         std::atomic<float>* volume;

@@ -297,6 +297,13 @@ void Performance::process (const Settings& s, const Transport& t, int numSamples
 
     const double ppq1 = ppq0 + numSamples * ppqPerSample;
 
+    if (restartRequested.exchange (false))
+    {
+        seqOrigin = ppq0;
+        arpOrigin = ppq0;
+        arpIndex = 0;
+    }
+
     if (s.mode == modeSeq)
         runSequencer (s, ppq0, ppq1, ppqPerSample, numSamples, out);
     else if (s.mode == modeArp)

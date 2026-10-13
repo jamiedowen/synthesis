@@ -59,6 +59,7 @@ juce_add_plugin(MidnightGrind
 set(MIDNIGHT_GRIND_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/PluginProcessor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/PluginEditor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/EditorViews.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Performance.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/Synth.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/MacroOscillator.cpp)

@@ -12,7 +12,7 @@
 #include <cstdint>
 #include <memory>
 
-#include "../PatchMatrix.h"
+#include "../PatchBay.h"
 #include "MacroOscillator.h"
 
 namespace grind::dsp
@@ -24,6 +24,7 @@ constexpr int maxVoices = 16;
 enum ModSource { modFromEnvelope, modFromLfo };
 enum VcoModDest { vcoToFrequency, vcoToHarmonics, vcoToTimbre, vcoToMorph };
 enum Priority { priorityLast, priorityLow, priorityHigh };
+enum VcaMode { vcaModeEnv, vcaModeLpg, vcaModeOn };
 
 struct SynthParams
 {
@@ -45,8 +46,8 @@ struct SynthParams
     bool vcfModInvert = false, highPass = false;
 
     // VCA / EG
-    bool vcaOn = false, sustain = true;
-    float attack = 0.0f, decay = 0.4f;                // 0..1 knob positions
+    int vcaMode = vcaModeEnv;
+    float attack = 0.0f, decay = 0.4f, sustain = 0.7f; // 0..1 knob positions
     float velocity = 0.0f;                            // velocity -> VCA amount
 
     // LFO
@@ -57,7 +58,10 @@ struct SynthParams
     float bendRange = 2.0f;
     int voices = 1, priority = priorityLast;
 
-    std::array<float, numPatchPoints> patch {};
+    int assignSource = 0;
+    PatchState patch = makeEmptyPatch();
+
+    static PatchState makeEmptyPatch() { PatchState s; s.fill (-1); return s; }
 };
 
 //==============================================================================
@@ -78,17 +82,17 @@ private:
 };
 
 //==============================================================================
-// Attack / decay envelope with the sustain switch: with SUSTAIN on it holds
-// at full level while the gate is high, and decays when the gate is released.
+// Attack / decay / sustain envelope: it falls to the SUSTAIN level while the
+// gate is held and releases at the DECAY rate when the gate goes low.
 class Envelope
 {
 public:
-    enum Stage { idle, attack, hold, decay };
+    enum Stage { idle, attack, decay, release };
 
     void reset() noexcept { stage = idle; value = 0.0f; }
     void gateOn() noexcept { stage = attack; }
-    void gateOff() noexcept { if (stage == attack || stage == hold) stage = decay; }
-    void process (int samples, float attackSeconds, float decaySeconds, bool sustain) noexcept;
+    void gateOff() noexcept { if (stage != idle) stage = release; }
+    void process (int samples, float attackSeconds, float decaySeconds, float sustainLevel) noexcept;
 
     float value = 0.0f;
     Stage stage = idle;
@@ -115,7 +119,8 @@ public:
     int note = -1;
     bool gate = false, primary = false;
     uint32_t age = 0;
-    float sources[numSources] {};          // last block's patch-bay outputs (for the editor)
+    float outputs[numOutputs] {};          // patch-bay outputs (latest values)
+    float inputs[numInputs] {};            // patch-bay inputs (latest values)
 
 private:
     MacroOscillator osc;
@@ -129,6 +134,12 @@ private:
     bool started = false;
     float previousGain = 0.0f, previousG = 0.1f;
     int silentBlocks = 0;
+
+    float assignValue (const SynthParams&, const GlobalModulation&) const noexcept;
+
+    float lastOsc1 = 0, lastOsc2 = 0, lastMix = 0, lastVcf = 0, lastVca = 0;
+    float lpgState[2] {};
+    uint32_t noiseState = 1;
 
     float outBuffer[plaits::kMaxBlockSize] {}, auxBuffer[plaits::kMaxBlockSize] {};
 };
@@ -155,6 +166,8 @@ public:
     void render (float* out, int numSamples);
 
     float getLfoValue() const noexcept { return lfoOutput; }
+    // Patch-bay input levels on the first voice (TEMPO, PLAY/STOP, RESET, HOLD go to the sequencer)
+    float getInput (int input) const noexcept { return voices[0]->inputs[input]; }
     float getEnvelopeLevel() const noexcept;
     int getActiveEngine() const noexcept { return params.engine; }
 

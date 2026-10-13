@@ -50,9 +50,60 @@ jobs:
           name: MidnightGrind-${{ matrix.platform }}-VST3
           path: dist/grind
 
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Projucer dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfreetype-dev libfontconfig1-dev libcurl4-openssl-dev libx11-dev \
+            libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libasound2-dev xvfb
+
+      - name: Get JUCE and build the Projucer
+        run: |
+          git clone --depth 1 --branch 8.0.9 https://github.com/juce-framework/JUCE.git Grind/Android/JUCE
+          make -C Grind/Android/JUCE/extras/Projucer/Builds/LinuxMakefile CONFIG=Release -j4
+
+      - name: Generate the Android Studio project
+        run: |
+          cd Grind/Android
+          python3 make_jucer.py JUCE
+          xvfb-run -a JUCE/extras/Projucer/Builds/LinuxMakefile/build/Projucer --resave MidnightGrind.jucer
+          # ARM phones only: halves the build time
+          sed -i 's/abiFilters "armeabi-v7a", "x86", "arm64-v8a", "x86_64"/abiFilters "arm64-v8a", "armeabi-v7a"/' Builds/Android/app/build.gradle
+
+      - name: Debug keystore
+        run: |
+          mkdir -p ~/.android
+          [ -f ~/.android/debug.keystore ] || keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android \
+            -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Build APK
+        run: |
+          cd Grind/Android/Builds/Android
+          chmod +x gradlew
+          ./gradlew assembleRelease_Release --no-daemon --stacktrace
+          mkdir -p "$GITHUB_WORKSPACE/dist-android"
+          find app/build/outputs/apk -name "*.apk" -exec cp {} "$GITHUB_WORKSPACE/dist-android/MidnightGrind.apk" \;
+          ls -la "$GITHUB_WORKSPACE/dist-android"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MidnightGrind-Android-APK
+          path: dist-android
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write

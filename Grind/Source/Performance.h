@@ -113,6 +113,9 @@ public:
     void setRecordCursor (int s) noexcept { recordCursor.store (s, std::memory_order_relaxed); }
     int getTranspose() const noexcept { return transpose.load (std::memory_order_relaxed); }
 
+    // RESET: the sequencer / arpeggiator jump back to their first step
+    void restart() noexcept { restartRequested.store (true); }
+
 private:
     struct PendingEvent { double ppq; int note; bool on; float velocity; bool accent; };
 
@@ -151,6 +154,7 @@ private:
     std::atomic<int> playingStep { -1 };
     std::atomic<int> recordCursor { 0 };
     std::atomic<int> transpose { 0 };
+    std::atomic<bool> restartRequested { false };
 };
 
 } // namespace grind

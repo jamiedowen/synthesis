@@ -279,20 +279,46 @@ int main (int argc, char** argv)
         writeWav (out, rate, outDir.getChildFile ("poly_chain_8.wav"));
     }
 
-    //== Patch bay: LFO > cutoff, S&H > timbre, LFO square > EG trig (self-playing)
+    //== Patch bay: LFO SQU > ENV GATE + OSC TRIG plays without keys; LFO TRI > TIMBRE
     {
         MidnightGrindProcessor p;
-        p.setPatch (grind::dstCutoff, grind::srcLfoTri, 0.4f);
-        p.setPatch (grind::dstTimbre, grind::srcSampleHold, 0.8f);
-        p.setPatch (grind::dstEgTrig, grind::srcLfoSquare, 1.0f);
-        p.setPatch (grind::dstOscTrig, grind::srcLfoSquare, 1.0f);
+        p.setCable (grind::inEnvGate, grind::outLfoSquare);
+        p.setCable (grind::inTrig, grind::outLfoSquare);
+        p.setCable (grind::inTimbre, grind::outLfoTri);
         setParam (p, "lfoRate", 0.55f);
         setParam (p, "model", 2.0f);
         setParam (p, "timbreAmt", 0.8f);
         p.prepareToPlay (rate, blockSize);
         auto out = render (p, rate, 3.0, nullptr);
-        check (analyse (out).rms > 0.01f, "LFO square into EG TRIG should play without keys");
+        check (analyse (out).rms > 0.01f, "LFO SQU into ENV GATE should play without keys");
         writeWav (out, rate, outDir.getChildFile ("patchbay_selfplaying.wav"));
+    }
+
+    //== Audio-rate patching: NOISE into MIX 2 with VC MIX fully up gives noise through the filter
+    {
+        MidnightGrindProcessor p;
+        p.setCable (grind::inMix2, grind::outNoise);
+        setParam (p, "mix", 1.0f);
+        setParam (p, "vcaMode", 2.0f);
+        p.prepareToPlay (rate, blockSize);
+        auto out = render (p, rate, 1.0, nullptr);
+        check (analyse (out).rms > 0.02f, "NOISE into MIX 2 should be audible");
+        p.setCable (grind::inVcfIn, grind::outOsc2);   // VCF IN replaces the mixer
+        out = render (p, rate, 0.5, nullptr);
+        check (analyse (out).finite, "VCF IN patch");
+    }
+
+    //== RESET jack restarts the sequencer
+    {
+        MidnightGrindProcessor p;
+        setParam (p, "playMode", (float) grind::modeSeq);
+        setParam (p, "seqRun", 1.0f);
+        p.prepareToPlay (rate, blockSize);
+        render (p, rate, 1.3, nullptr);
+        check (p.getPerformance().getPlayingStep() > 2, "sequencer should be running");
+        p.setCable (grind::inReset, grind::outGate);     // gate output goes high when a step plays
+        render (p, rate, 0.05, nullptr);
+        check (p.getPerformance().getPlayingStep() >= 0, "sequencer still running after reset patch");
     }
 
     //== State round trip
@@ -301,7 +327,8 @@ int main (int argc, char** argv)
         p.prepareToPlay (rate, blockSize);
         setParam (p, "model", 13.0f);
         setParam (p, "cutoff", 777.0f);
-        p.setPatch (grind::dstMorph, grind::srcLfoTri, -0.35f);
+        p.setCable (grind::inMorph, grind::outLfoTri);
+        p.setCable (grind::inMix2, grind::outNoise);
         grind::Step st;
         st.note = 70; st.accent = true; st.slide = true; st.ratchet = 3;
         p.getPerformance().setStep (17, 9, st);
@@ -313,7 +340,8 @@ int main (int argc, char** argv)
         q.setStateInformation (state.getData(), (int) state.getSize());
         check ((int) q.apvts.getRawParameterValue ("model")->load() == 13, "param round trip (model)");
         check (std::abs (q.apvts.getRawParameterValue ("cutoff")->load() - 777.0f) < 1.0f, "param round trip (cutoff)");
-        check (std::abs (q.getPatch (grind::dstMorph, grind::srcLfoTri) + 0.35f) < 0.001f, "patch round trip");
+        check (q.getCable (grind::inMorph) == grind::outLfoTri && q.getCable (grind::inMix2) == grind::outNoise
+               && q.getCable (grind::inCutoff) == -1, "cable round trip");
         const auto r = q.getPerformance().getStep (17, 9);
         check (r.note == 70 && r.accent && r.slide && r.ratchet == 3, "step round trip");
         check (q.getPerformance().getLength (17) == 23, "pattern length round trip");
@@ -337,23 +365,21 @@ int main (int argc, char** argv)
                   << juce::String (4000.0 / ms, 1) << "x realtime)\n";
     }
 
-    //== Editor screenshots (each bottom tab)
+    //== Editor screenshots: the panel with some cables, then each menu page
     {
         MidnightGrindProcessor p;
         p.prepareToPlay (rate, blockSize);
-        p.setPatch (grind::dstCutoff, grind::srcLfoTri, 0.5f);
-        p.setPatch (grind::dstTimbre, grind::srcEnvelope, -0.6f);
-        p.setPatch (grind::dstPitch, grind::srcKeyboard, 1.0f);
+        p.setCable (grind::inCutoff, grind::outLfoTri);
+        p.setCable (grind::inTimbre, grind::outEnv);
+        p.setCable (grind::inMix2, grind::outNoise);
         std::unique_ptr<juce::AudioProcessorEditor> editor (p.createEditor());
-        auto* tabs = editor->getChildren().size() > 0 ? dynamic_cast<juce::TabbedButtonBar*> (
-                         *std::find_if (editor->getChildren().begin(), editor->getChildren().end(),
-                                        [] (auto* c) { return dynamic_cast<juce::TabbedButtonBar*> (c) != nullptr; }))
-                                                      : nullptr;
-        const char* names[] = { "editor.png", "editor_arp.png", "editor_patchbay.png", "editor_settings.png" };
+        auto* grindEditor = dynamic_cast<grind::ui::MidnightGrindEditor*> (editor.get());
+        check (grindEditor != nullptr, "editor type");
+        const char* names[] = { "editor.png", "editor_sequencer.png", "editor_arp.png", "editor_settings.png" };
         for (int t = 0; t < 4; ++t)
         {
-            if (tabs != nullptr)
-                tabs->setCurrentTabIndex (t);
+            if (grindEditor != nullptr)
+                grindEditor->showMenu (t - 1);
             auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f);
             juce::PNGImageFormat png;
             auto file = outDir.getChildFile (names[t]);

@@ -108,12 +108,12 @@ AudioProcessorValueTreeState::ParameterLayout MidnightGrindProcessor::createLayo
     addFloat ("drive", "Drive", { 0.0f, 1.0f }, 0.3f, pct);
 
     //== VCA / EG
-    addChoice ("vcaMode", "VCA Mode", { "EG", "On" }, 0);
+    addChoice ("vcaMode", "VCA Mode", { "Env", "LPG", "On" }, 0);
     addFloat ("attack", "Attack", { 0.0f, 1.0f }, 0.0f,
               AF().withStringFromValueFunction ([] (float v, int) { return timeString (0.001f * std::pow (10000.0f, v)); }));
     addFloat ("decay", "Decay", { 0.0f, 1.0f }, 0.45f,
               AF().withStringFromValueFunction ([] (float v, int) { return timeString (0.003f * std::pow (3333.0f, v)); }));
-    addBool ("sustain", "Sustain", true);
+    addFloat ("sustain", "Sustain", { 0.0f, 1.0f }, 0.7f, pct);
     addFloat ("velocity", "Velocity > VCA", { 0.0f, 1.0f }, 0.0f, pct);
 
     //== LFO / glide / out
@@ -166,6 +166,11 @@ AudioProcessorValueTreeState::ParameterLayout MidnightGrindProcessor::createLayo
     addChoice ("midiChannel", "MIDI Channel", channels, 0);
     addInt ("bendRange", "Pitch Bend Range", 0, 24, 2);
 
+    StringArray assigns;
+    for (auto* a : grind::assignNames)
+        assigns.add (a);
+    addChoice ("assignSrc", "Assign Output", assigns, 0);
+
     return layout;
 }
 
@@ -181,15 +186,15 @@ MidnightGrindProcessor::MidnightGrindProcessor()
           get ("vcoModAmt"), get ("vcoModSrc"), get ("vcoModDest"),
           get ("cutoff"), get ("resonance"), get ("vcfModAmt"), get ("vcfModSrc"), get ("vcfModPol"), get ("vcfMode"),
           get ("keyTrack"), get ("drive"),
-          get ("vcaMode"), get ("attack"), get ("decay"), get ("sustain"), get ("velocity"),
+          get ("vcaMode"), get ("attack"), get ("decay"), get ("assignSrc"), get ("sustain"), get ("velocity"),
           get ("lfoRate"), get ("lfoWave"), get ("glide"), get ("volume"),
           get ("playMode"), get ("tempo"), get ("seqRun"), get ("seqRec"), get ("pattern"), get ("seqRate"),
           get ("seqGate"), get ("swing"),
           get ("arpPattern"), get ("arpOctaves"), get ("arpRate"), get ("arpGate"), get ("arpHold"),
           get ("voices"), get ("priority"), get ("midiChannel"), get ("bendRange") };
 
-    for (auto& patch : patches)
-        patch.store (0.0f);
+    for (auto& c : cables)
+        c.store (-1);
     for (int i = 0; i < 4; ++i)
     {
         uiNoteOn[i].store (0);
@@ -277,10 +282,11 @@ void MidnightGrindProcessor::updateParams()
     s.highPass = idx (p.vcfMode) == 1;
     s.keyTrack = ld (p.keyTrack);
     s.drive = ld (p.drive);
-    s.vcaOn = idx (p.vcaMode) == 1;
+    s.vcaMode = idx (p.vcaMode);
+    s.assignSource = idx (p.assignSrc);
     s.attack = ld (p.attack);
     s.decay = ld (p.decay);
-    s.sustain = ld (p.sustain) > 0.5f;
+    s.sustain = ld (p.sustain);
     s.velocity = ld (p.velocity);
     s.lfoRate = ld (p.lfoRate);
     s.lfoSquare = idx (p.lfoWave) == 1;
@@ -288,8 +294,8 @@ void MidnightGrindProcessor::updateParams()
     s.bendRange = ld (p.bendRange);
     s.voices = idx (p.voices);
     s.priority = idx (p.priority);
-    for (size_t i = 0; i < patches.size(); ++i)
-        s.patch[i] = patches[i].load (std::memory_order_relaxed);
+    for (size_t i = 0; i < cables.size(); ++i)
+        s.patch[i] = cables[i].load (std::memory_order_relaxed);
 
     synth.setParams (s);
 }
@@ -365,7 +371,28 @@ void MidnightGrindProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffe
         mono.resize ((size_t) numSamples);
 
     updateParams();
-    const auto settings = performanceSettings();
+    auto settings = performanceSettings();
+
+    // Sequencer jacks (read from the first voice's patch bay)
+    if (getCable (grind::inTempo) >= 0)
+        settings.tempo *= std::exp2 (2.0 * (double) synth.getInput (grind::inTempo));
+    if (getCable (grind::inHold) >= 0 && synth.getInput (grind::inHold) > 0.25f)
+        settings.arpHold = true;
+    {
+        const float playStop = getCable (grind::inPlayStop) >= 0 ? synth.getInput (grind::inPlayStop) : 0.0f;
+        if (playStop > 0.25f && lastPlayStop <= 0.25f)
+        {
+            settings.seqRun = ! settings.seqRun;
+            if (auto* run = apvts.getParameter ("seqRun"))
+                run->setValueNotifyingHost (settings.seqRun ? 1.0f : 0.0f);
+        }
+        lastPlayStop = playStop;
+
+        const float reset = getCable (grind::inReset) >= 0 ? synth.getInput (grind::inReset) : 0.0f;
+        if (reset > 0.25f && lastReset <= 0.25f)
+            performance.restart();
+        lastReset = reset;
+    }
     const int channel = (int) std::lround (p.midiChannel->load());
 
     //== Collect events
@@ -471,31 +498,31 @@ void MidnightGrindProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffe
 }
 
 //==============================================================================
-float MidnightGrindProcessor::getPatch (int d, int s) const noexcept
+int MidnightGrindProcessor::getCable (int input) const noexcept
 {
-    if (d < 0 || d >= grind::numDestinations || s < 0 || s >= grind::numSources)
-        return 0.0f;
-    return patches[(size_t) grind::patchIndex (d, s)].load (std::memory_order_relaxed);
+    return isPositiveAndBelow (input, grind::numInputs) ? cables[(size_t) input].load (std::memory_order_relaxed) : -1;
 }
 
-void MidnightGrindProcessor::setPatch (int d, int s, float amount) noexcept
+void MidnightGrindProcessor::setCable (int input, int output) noexcept
 {
-    if (d < 0 || d >= grind::numDestinations || s < 0 || s >= grind::numSources)
+    if (! isPositiveAndBelow (input, grind::numInputs))
         return;
-    patches[(size_t) grind::patchIndex (d, s)].store (juce::jlimit (-1.0f, 1.0f, amount), std::memory_order_relaxed);
+    cables[(size_t) input].store (isPositiveAndBelow (output, grind::numOutputs) ? output : -1, std::memory_order_relaxed);
+    cableVersion.fetch_add (1);
 }
 
-void MidnightGrindProcessor::clearPatches() noexcept
+void MidnightGrindProcessor::clearCables() noexcept
 {
-    for (auto& patch : patches)
-        patch.store (0.0f, std::memory_order_relaxed);
+    for (auto& c : cables)
+        c.store (-1, std::memory_order_relaxed);
+    cableVersion.fetch_add (1);
 }
 
-int MidnightGrindProcessor::countPatches() const noexcept
+int MidnightGrindProcessor::countCables() const noexcept
 {
     int n = 0;
-    for (auto& patch : patches)
-        n += grind::isPatched (patch.load (std::memory_order_relaxed)) ? 1 : 0;
+    for (auto& c : cables)
+        n += c.load (std::memory_order_relaxed) >= 0 ? 1 : 0;
     return n;
 }
 
@@ -536,9 +563,9 @@ void MidnightGrindProcessor::applyProgram (int index)
         if (auto* param = apvts.getParameter (id))
             param->setValueNotifyingHost (param->convertTo0to1 (value));
 
-    clearPatches();
+    clearCables();
     for (const auto& c : preset.cables)
-        setPatch (c.destination, c.source, c.amount);
+        setCable (c.input, c.output);
 }
 
 juce::ValueTree MidnightGrindProcessor::extraStateToTree() const
@@ -546,12 +573,11 @@ juce::ValueTree MidnightGrindProcessor::extraStateToTree() const
     ValueTree extra ("EXTRA");
     extra.setProperty ("program", currentProgram, nullptr);
 
-    String patchText;
-    for (int d = 0; d < grind::numDestinations; ++d)
-        for (int s = 0; s < grind::numSources; ++s)
-            if (const float a = getPatch (d, s); grind::isPatched (a))
-                patchText << d << ":" << s << ":" << String (a, 4) << ";";
-    extra.setProperty ("patches", patchText, nullptr);
+    String cableText;
+    for (int i = 0; i < grind::numInputs; ++i)
+        if (const int o = getCable (i); o >= 0)
+            cableText << i << ":" << o << ";";
+    extra.setProperty ("cables", cableText, nullptr);
 
     ValueTree patterns ("PATTERNS");
     for (int pat = 0; pat < grind::numPatterns; ++pat)
@@ -575,15 +601,15 @@ void MidnightGrindProcessor::extraStateFromTree (const ValueTree& extra)
         return;
     currentProgram = extra.getProperty ("program", 0);
 
-    clearPatches();
-    StringArray cables;
-    cables.addTokens (extra.getProperty ("patches").toString(), ";", "");
-    for (const auto& c : cables)
+    clearCables();
+    StringArray cableTokens;
+    cableTokens.addTokens (extra.getProperty ("cables").toString(), ";", "");
+    for (const auto& c : cableTokens)
     {
         StringArray parts;
         parts.addTokens (c, ":", "");
-        if (parts.size() == 3)
-            setPatch (parts[0].getIntValue(), parts[1].getIntValue(), parts[2].getFloatValue());
+        if (parts.size() == 2)
+            setCable (parts[0].getIntValue(), parts[1].getIntValue());
     }
 
     const auto patterns = extra.getChildWithName ("PATTERNS");
