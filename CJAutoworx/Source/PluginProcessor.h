@@ -1,5 +1,9 @@
 #pragma once
 
+// The Android build is a Projucer project, which needs its generated global header first
+#if __has_include (<JuceHeader.h>)
+ #include <JuceHeader.h>
+#endif
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <atomic>
 #include "Engine.h"
