@@ -17,10 +17,10 @@ jobs:
         include:
           - name: Windows
             os: windows-latest
-            artifact: MidnightEdge-Windows-VST3
+            platform: Windows
           - name: macOS
             os: macos-latest
-            artifact: MidnightEdge-macOS-VST3
+            platform: macOS
     steps:
       - uses: actions/checkout@v4
 
@@ -28,23 +28,62 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
 
       - name: Build VST3
-        run: cmake --build build --config Release --target MidnightEdge_VST3 --parallel
+        run: cmake --build build --config Release --target MidnightEdge_VST3 CJAutoworx_VST3 --parallel
 
       - name: Package
         shell: bash
         run: |
-          mkdir -p dist
-          cp -R "build/MidnightEdge_artefacts/Release/VST3/Midnight Edge.vst3" dist/
-          cp README.md dist/
+          mkdir -p dist/midnight-edge dist/cj-autoworx
+          cp -R "build/MidnightEdge_artefacts/Release/VST3/Midnight Edge.vst3" dist/midnight-edge/
+          cp README.md dist/midnight-edge/
+          cp -R "build/CJAutoworx/CJAutoworx_artefacts/Release/VST3/CJ Autoworx RevHead.vst3" dist/cj-autoworx/
+          cp CJAutoworx/README.md dist/cj-autoworx/
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: MidnightEdge-${{ matrix.platform }}-VST3
+          path: dist/midnight-edge
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CJAutoworx-RevHead-${{ matrix.platform }}-VST3
+          path: dist/cj-autoworx
+
+  android:
+    name: Android (CJ Autoworx RevHead)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Projucer build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libxext-dev libfreetype-dev libfontconfig1-dev libgl-dev libcurl4-openssl-dev
+
+      - name: Build APK
+        run: CJAutoworx/Android/build-android.sh
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          find CJAutoworx/Android/Builds/Android -name "*.apk" -path "*outputs*" -exec cp {} dist/CJAutoworx-RevHead.apk \;
+          cp CJAutoworx/README.md dist/
+          test -f dist/CJAutoworx-RevHead.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CJAutoworx-RevHead-Android-APK
           path: dist
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write

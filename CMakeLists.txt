@@ -70,3 +70,6 @@ if (MIDNIGHT_EDGE_BUILD_TESTS)
         juce::juce_audio_utils juce::juce_audio_formats juce::juce_dsp
         juce::juce_recommended_config_flags)
 endif()
+
+# Second plugin: CJ Autoworx RevHead, the engine synth
+add_subdirectory(CJAutoworx)

@@ -7,3 +7,6 @@ cmake-build-*/
 out/
 *.user
 .DS_Store
+CJAutoworx/Android/JUCE/
+CJAutoworx/Android/Builds/
+CJAutoworx/Android/JuceLibraryCode/

@@ -7,6 +7,10 @@ a step sequencer, voices you can tweak, and FM metallic percussion.
 
 ![Midnight Edge](docs/editor.png)
 
+> **Also in this repo:** [CJ Autoworx RevHead](CJAutoworx/README.md) is an engine synthesizer
+> for car, bike and diesel sounds that you can also play musically. It's a VST3 and an Android app,
+> and Jarrad is its logo.
+
 ## Features
 
 - **8 synthesised voices**: Kick, Snare, Clap, Closed Hat, Open Hat (choked by the closed hat),
